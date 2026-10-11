@@ -19,14 +19,14 @@
 *.7z
 *.rar
 
-# Dataset, output, and artifact directories
-data/
-outputs/
-artifacts/
-checkpoints/
-logs/
-wandb/
-mlruns/
+# Dataset, output, and artifact directories (root-anchored so src/imagined_speech/data/ is tracked)
+/data/
+/outputs/
+/artifacts/
+/checkpoints/
+/logs/
+/wandb/
+/mlruns/
 
 # Temporary arrays, intermediate data, and model checkpoints (Rule 5)
 *.npy
