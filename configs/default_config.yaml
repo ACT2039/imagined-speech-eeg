@@ -1,0 +1,117 @@
+# Default configuration for Imagined Speech Recognition (Phase 1: Dataset Discovery & EDF Audit)
+# Paths can be overridden via environment variables (ISR_DATA_ROOT, ISR_OUTPUT_DIR)
+# or CLI flags (--data-root, --output-dir). Never hard-code user/machine-specific paths here.
+
+project:
+  name: "imagined-speech-recognition"
+  seed: 42
+  log_level: "INFO"
+
+paths:
+  # Relative fallback paths; override via --data-root / --output-dir or env vars in Colab/local runs
+  data_root: "./data/raw"
+  output_dir: "./outputs/phase1_audit"
+
+discovery:
+  expected_tasks:
+    - "Char"
+    - "Digit"
+    - "Image"
+  allowed_extensions:
+    - ".edf"
+  allow_missing_task_dirs: false
+  recursive_within_task: true
+
+label_parsing:
+  # Delimiters used when splitting filename stems into candidate prefix and label tokens
+  delimiters:
+    - "_"
+    - "-"
+  # How to normalize labels ("lower", "upper", or "preserve_case")
+  case_mode: "lower"
+  # Note (Rule 12): Any extracted prefix is recorded strictly as `unverified_candidate_prefix`
+  # and must NOT be treated as a verified participant ID until independently verified.
+  extract_candidate_prefix: true
+
+edf_audit:
+  # Whether to load signal arrays in-memory (read-only) to validate actual signal properties
+  # (flatline channels, monotonic sample counters, NaN/Inf, amplitude ranges) per Rule 10.
+  inspect_signal_properties: true
+  # Maximum seconds of signal to sample for quick property verification (null = full recording)
+  max_inspection_duration_sec: null
+  # Standard 10-20 / 10-10 EEG electrode names (including Emotiv EPOC+ 14-channel montage
+  # commonly used in Char/Digit/Image imagined speech datasets)
+  known_eeg_channel_names:
+    - "AF3"
+    - "F7"
+    - "F3"
+    - "FC5"
+    - "T7"
+    - "P7"
+    - "O1"
+    - "O2"
+    - "P8"
+    - "T8"
+    - "FC6"
+    - "F4"
+    - "F8"
+    - "AF4"
+    - "FP1"
+    - "FP2"
+    - "FZ"
+    - "CZ"
+    - "PZ"
+    - "OZ"
+    - "C3"
+    - "C4"
+    - "P3"
+    - "P4"
+    - "F1"
+    - "F2"
+    - "FC1"
+    - "FC2"
+    - "FC3"
+    - "FC4"
+    - "CP1"
+    - "CP2"
+    - "CP3"
+    - "CP4"
+    - "CP5"
+    - "CP6"
+    - "TP7"
+    - "TP8"
+    - "PO3"
+    - "PO4"
+    - "PO7"
+    - "PO8"
+    - "T3"
+    - "T4"
+    - "T5"
+    - "T6"
+  # Known non-EEG metadata, hardware status, motion, or auxiliary channels frequently embedded in EDF files
+  known_non_eeg_substrings:
+    - "COUNTER"
+    - "INTERPOLATED"
+    - "RAW_CQ"
+    - "GYRO"
+    - "ACC"
+    - "MAG"
+    - "BATTERY"
+    - "MARKER"
+    - "TIMESTAMP"
+    - "SYSTEM"
+    - "FUNC_ID"
+    - "FUNC_VALUE"
+    - "SYNC"
+    - "STI"
+    - "TRIG"
+    - "STATUS"
+    - "ANNOT"
+    - "EDF ANNOTATIONS"
+    - "CQ_"
+    - "DEV_ID"
+    - "EOG"
+    - "ECG"
+    - "EKG"
+    - "EMG"
+  flat_std_threshold: 1.0e-12

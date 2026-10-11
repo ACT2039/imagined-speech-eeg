@@ -1,0 +1,78 @@
+# Raw dataset files and archives (Rule 5: never commit raw EDFs or source ZIPs)
+*.edf
+*.EDF
+*.bdf
+*.BDF
+*.gdf
+*.GDF
+*.fif
+*.vhdr
+*.vmrk
+*.eeg
+*.set
+*.fdt
+*.zip
+*.ZIP
+*.tar
+*.tar.gz
+*.tgz
+*.7z
+*.rar
+
+# Dataset, output, and artifact directories
+data/
+outputs/
+artifacts/
+checkpoints/
+logs/
+wandb/
+mlruns/
+
+# Temporary arrays, intermediate data, and model checkpoints (Rule 5)
+*.npy
+*.npz
+*.pkl
+*.pickle
+*.joblib
+*.pt
+*.pth
+*.ckpt
+*.onnx
+*.h5
+*.hdf5
+*.parquet
+*.feather
+
+# Secrets, credentials, and environment files (Rule 5)
+.env
+.env.*
+!.env.example
+*credentials*.json
+*secret*
+*token*.json
+*.pem
+*.key
+
+# Python build / bytecode / packaging
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Testing and linting caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Jupyter / Colab / IDE
+.ipynb_checkpoints/
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
