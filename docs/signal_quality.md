@@ -73,19 +73,20 @@ python -m imagined_speech.cli `
 
 ### Google Colab Execution
 
-Open `notebooks/02_signal_quality.ipynb` in Google Colab, or run the following commands in a Colab cell after mounting Google Drive at `/content/drive`:
+Open `notebooks/02_signal_quality.ipynb` in Google Colab, or run the following commands in a Colab cell after mounting Google Drive at `/content/drive` and completing Phase 1:
 
 ```bash
 !git clone https://github.com/ACT2039/imagined-speech-eeg.git /content/imagined-speech-eeg
 %cd /content/imagined-speech-eeg
-!python -m pip install -q -e ".[dev]"
+!python -m pip install -e ".[dev]"
 
-# Run Phase 1 Audit + Phase 2 Signal Quality Analysis and save reports/figures to Google Drive
+# Run Phase 2 Signal Quality Analysis using the verified Phase 1 manifest and save reports/figures to Google Drive
 !python -m imagined_speech.cli \
-  --mode both \
+  --mode signal-quality \
   --config configs/default_config.yaml \
-  --data-root "/content/data/raw" \
-  --output-dir "/content/drive/MyDrive/imagined_speech_project/outputs/phase2_signal_quality" \
+  --data-root "/content/data/raw/Imagined_speech_EEG_edf" \
+  --manifest "/content/drive/MyDrive/imagined_speech_outputs/phase1_audit/manifest.csv" \
+  --output-dir "/content/drive/MyDrive/imagined_speech_outputs/phase2_signal_quality" \
   --recordings-per-task 3 \
   --seed 42
 ```

@@ -130,9 +130,9 @@ To run the Phase 2 signal-quality pipeline in Google Colab (or open `notebooks/0
 !python -m imagined_speech.cli \
   --mode signal-quality \
   --config configs/default_config.yaml \
-  --data-root "/content/data/raw" \
-  --manifest "/content/drive/MyDrive/imagined_speech_project/outputs/phase1_audit/manifest.csv" \
-  --output-dir "/content/drive/MyDrive/imagined_speech_project/outputs/phase2_signal_quality" \
+  --data-root "/content/data/raw/Imagined_speech_EEG_edf" \
+  --manifest "/content/drive/MyDrive/imagined_speech_outputs/phase1_audit/manifest.csv" \
+  --output-dir "/content/drive/MyDrive/imagined_speech_outputs/phase2_signal_quality" \
   --recordings-per-task 3 \
   --seed 42
 ```
