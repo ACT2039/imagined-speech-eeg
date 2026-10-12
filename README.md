@@ -22,7 +22,7 @@ The project is being developed incrementally.
 - [x] EDF discovery and metadata-audit implementation
 - [x] Unit tests for configuration, filename parsing, discovery, and EDF auditing
 - [ ] Verification against the complete raw dataset in Google Colab
-- [ ] EEG signal-quality analysis
+- [x] EEG signal-quality analysis
 - [ ] Validated preprocessing pipeline
 - [ ] Classical machine-learning baselines
 - [ ] Deep-learning experiments
@@ -71,7 +71,7 @@ Inspect the available CLI commands:
 python -m imagined_speech.cli --help
 ```
 
-For dataset access and execution in Google Colab, consult `docs/colab_setup.md`.
+For dataset access and execution in Google Colab, consult `docs/colab_setup.md` and `docs/signal_quality.md`.
 
 ## Research and Evaluation Principles
 

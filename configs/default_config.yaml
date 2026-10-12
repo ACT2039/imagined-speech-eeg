@@ -115,3 +115,47 @@ edf_audit:
     - "EKG"
     - "EMG"
   flat_std_threshold: 1.0e-12
+
+signal_quality:
+  # Number of representative recordings deterministically selected per task (Char, Digit, Image)
+  recordings_per_task: 3
+  # Optional explicit relative paths or filenames to always inspect
+  specific_recordings: []
+  # Primary expected EEG channel montage checked for presence/absence on every recording
+  expected_eeg_channels:
+    - "AF3"
+    - "F7"
+    - "F3"
+    - "FC5"
+    - "T7"
+    - "P7"
+    - "O1"
+    - "O2"
+    - "P8"
+    - "T8"
+    - "FC6"
+    - "F4"
+    - "F8"
+    - "AF4"
+  # Selected EEG channels for individual-channel detail plots
+  focus_channels_for_individual_plots:
+    - "AF3"
+    - "T7"
+    - "O1"
+    - "F8"
+  max_individual_channel_plots_per_recording: 4
+  # Maximum seconds of waveform to plot (null = full recording duration)
+  plot_duration_sec: null
+  generate_plots: true
+  # Heuristic diagnostic thresholds (distinguished from measured values; not definitive artifact proof)
+  flat_std_threshold: 1.0e-12
+  near_flat_std_threshold: 1.0e-3
+  near_flat_diff_tol: 1.0e-9
+  near_zero_diff_fraction_threshold: 0.90
+  constant_run_fraction_threshold: 0.25
+  clipping_boundary_rel_tol: 1.0e-3
+  clipping_fraction_threshold: 0.02
+  repeated_value_fraction_threshold: 0.30
+  repeated_adjacent_fraction_threshold: 0.50
+  low_unique_ratio_threshold: 0.05
+

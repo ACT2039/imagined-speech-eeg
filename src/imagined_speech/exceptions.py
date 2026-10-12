@@ -19,3 +19,8 @@ class LabelParseError(ImaginedSpeechError):
 
 class EDFValidationError(ImaginedSpeechError):
     """Raised when an EDF file is corrupted, unreadable, or fails structural validation."""
+
+
+class SignalQualityError(ImaginedSpeechError):
+    """Raised when signal-quality input validation or analysis encounters a fatal error."""
+

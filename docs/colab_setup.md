@@ -107,3 +107,23 @@ The Phase 1 audit writes three files to `--output-dir`:
 1. `manifest.csv`: Recording-level inventory preserving `original_filename`, `relative_source_path`, `task_category`, `raw_label`, `normalized_label`, `unverified_candidate_prefix`, EDF header metadata (`edf_patient_id_raw`, `sfreq_hz`, `duration_sec`), and channel counts.
 2. `channel_audit.csv`: Channel-level verification report comparing MNE's default type assignment against audited channel roles (`candidate_eeg`, `non_eeg_metadata_or_aux`, `non_eeg_counter_signal`, `unknown_needs_review`) and in-memory signal diagnostics (`is_flat`, `is_counter_like`, `has_nan_or_inf`).
 3. `audit_summary.json`: Dataset-level summary statistics, class distributions per task, sampling rate consistency checks, and validation warnings.
+
+---
+
+## 6. Running Phase 2 EEG Signal Quality Analysis & Visualization
+
+To run the Phase 2 signal-quality pipeline in Google Colab (or open `notebooks/02_signal_quality.ipynb`):
+
+```bash
+!python -m imagined_speech.cli \
+  --mode signal-quality \
+  --config configs/default_config.yaml \
+  --data-root "/content/data/raw" \
+  --manifest "/content/drive/MyDrive/imagined_speech_project/outputs/phase1_audit/manifest.csv" \
+  --output-dir "/content/drive/MyDrive/imagined_speech_project/outputs/phase2_signal_quality" \
+  --recordings-per-task 3 \
+  --seed 42
+```
+
+See `docs/signal_quality.md` for details on the generated `signal_statistics.csv`, `signal_quality_summary.json`, `signal_quality_report.md`, and `figures/` visualizations.
+
