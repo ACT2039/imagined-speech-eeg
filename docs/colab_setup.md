@@ -8,18 +8,17 @@ This guide explains how to connect the `imagined-speech-recognition` repository 
 
 Store the original raw dataset archive (or extracted directory) in your Google Drive. Do **not** place raw `.edf` files or `.zip` archives inside the Git repository.
 
-Recommended Google Drive structure:
+Expected Google Drive structure for Phase 1:
 
 ```text
 MyDrive/
-└── imagined_speech_project/
-    ├── raw/
-    │   └── imagined_speech_edf.zip      # Original read-only dataset archive
-    └── outputs/
-        └── phase1_audit/                # Persistent audit outputs (manifest, channel report, summary)
+├── datasets/
+│   └── Imagined_speech_EEG_edf.zip      # Original read-only dataset archive
+└── imagined_speech_outputs/
+    └── phase1_audit/                    # Persistent Phase 1 audit outputs (manifest, channel report, summary)
 ```
 
-Once extracted, the dataset root directory should contain the three task directories:
+Once extracted, the dataset root directory contains the three task directories:
 - `Char/`
 - `Digit/`
 - `Image/`
@@ -28,19 +27,19 @@ Once extracted, the dataset root directory should contain the three task directo
 
 ## 2. Mounting Google Drive and Installing the Package in Colab
 
-Run the following cells in a Google Colab notebook:
+Open `notebooks/01_phase1_dataset_audit.ipynb` in Google Colab, or run the following steps in a fresh Colab runtime:
 
 ```python
 from google.colab import drive
 drive.mount("/content/drive")
 ```
 
-Clone the GitHub repository into the Colab runtime and install the package in editable mode:
+Clone (or safely update) the GitHub repository into the Colab runtime and install the package in editable mode:
 
 ```bash
-!git clone <YOUR_GITHUB_REPO_URL> /content/imagined-speech-recognition
-%cd /content/imagined-speech-recognition
-!python -m pip install -q -e ".[dev]"
+!git clone https://github.com/ACT2039/imagined-speech-eeg.git /content/imagined-speech-eeg
+%cd /content/imagined-speech-eeg
+!python -m pip install -e ".[dev]"
 ```
 
 Verify the installation by running the unit test suite:
@@ -51,38 +50,51 @@ Verify the installation by running the unit test suite:
 
 ---
 
-## 3. Extracting the Dataset Archive Safely (Read-Only Source)
+## 3. Extracting the Dataset Archive Safely and Locating `DATA_ROOT`
 
-For fast disk I/O and to ensure the original archive on Google Drive is never modified, extract the ZIP archive into the Colab local filesystem (`/content/data/raw`) rather than extracting directly inside Google Drive:
+For fast disk I/O and to ensure the original archive on Google Drive is never modified, verify and extract `/content/drive/MyDrive/datasets/Imagined_speech_EEG_edf.zip` into the Colab local filesystem (`/content/data/raw`) without redundant re-extraction, then automatically locate the directory containing `Char/`, `Digit/`, and `Image/`:
 
 ```python
 import zipfile
 from pathlib import Path
 
-# Set via environment variables or edit to match your Google Drive path
-DRIVE_ZIP_PATH = Path("/content/drive/MyDrive/imagined_speech_project/raw/imagined_speech_edf.zip")
-LOCAL_EXTRACT_DIR = Path("/content/data/raw")
+DRIVE_ZIP_PATH = Path("/content/drive/MyDrive/datasets/Imagined_speech_EEG_edf.zip")
+EXTRACT_ROOT = Path("/content/data/raw")
 
-LOCAL_EXTRACT_DIR.mkdir(parents=True, exist_ok=True)
-with zipfile.ZipFile(DRIVE_ZIP_PATH, "r") as zf:
-    zf.extractall(LOCAL_EXTRACT_DIR)
+existing_edfs = (
+    [p for p in EXTRACT_ROOT.rglob("*") if p.is_file() and p.suffix.lower() == ".edf"]
+    if EXTRACT_ROOT.exists()
+    else []
+)
+if not existing_edfs:
+    if not DRIVE_ZIP_PATH.is_file():
+        raise FileNotFoundError(f"Dataset ZIP archive not found at {DRIVE_ZIP_PATH}")
+    EXTRACT_ROOT.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(DRIVE_ZIP_PATH, "r") as zf:
+        zf.extractall(EXTRACT_ROOT)
 
-print("Extracted top-level entries:", [p.name for p in sorted(LOCAL_EXTRACT_DIR.iterdir())])
+# Automatically locate the folder containing Char/, Digit/, and Image/
+DATA_ROOT = next(
+    cand.resolve()
+    for cand in [EXTRACT_ROOT, *sorted(d for d in EXTRACT_ROOT.rglob("*") if d.is_dir())]
+    if {"char", "digit", "image"}.issubset({c.name.lower() for c in cand.iterdir() if c.is_dir()})
+)
+print("Resolved DATA_ROOT:", DATA_ROOT)
 ```
-
-> **Note:** If the ZIP archive wraps `Char/`, `Digit/`, and `Image/` inside an outer parent folder (e.g., `/content/data/raw/Dataset/Char`), pass that inner folder as `--data-root`.
 
 ---
 
 ## 4. Running the Phase 1 Dataset Discovery & EDF Audit
 
-Run the CLI using `--data-root` (pointing to the folder containing `Char`, `Digit`, and `Image`) and `--output-dir` (pointing to a persistent folder on Google Drive):
+In `notebooks/01_phase1_dataset_audit.ipynb`, the notebook calls `run_dataset_audit` directly and saves outputs to `/content/drive/MyDrive/imagined_speech_outputs/phase1_audit/`.
+
+You can also run the equivalent CLI command using `--data-root` (pointing to the resolved `DATA_ROOT` containing `Char`, `Digit`, and `Image`) and `--output-dir`:
 
 ```bash
 !python -m imagined_speech.cli \
   --config configs/default_config.yaml \
   --data-root "/content/data/raw" \
-  --output-dir "/content/drive/MyDrive/imagined_speech_project/outputs/phase1_audit"
+  --output-dir "/content/drive/MyDrive/imagined_speech_outputs/phase1_audit"
 ```
 
 Alternatively, configure paths via environment variables:
@@ -90,8 +102,8 @@ Alternatively, configure paths via environment variables:
 ```python
 import os
 
-os.environ["ISR_DATA_ROOT"] = "/content/data/raw"
-os.environ["ISR_OUTPUT_DIR"] = "/content/drive/MyDrive/imagined_speech_project/outputs/phase1_audit"
+os.environ["ISR_DATA_ROOT"] = str(DATA_ROOT)
+os.environ["ISR_OUTPUT_DIR"] = "/content/drive/MyDrive/imagined_speech_outputs/phase1_audit"
 os.environ["ISR_SEED"] = "42"
 ```
 
