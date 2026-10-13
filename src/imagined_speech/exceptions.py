@@ -24,3 +24,7 @@ class EDFValidationError(ImaginedSpeechError):
 class SignalQualityError(ImaginedSpeechError):
     """Raised when signal-quality input validation or analysis encounters a fatal error."""
 
+
+class PreprocessingError(ImaginedSpeechError):
+    """Raised when Phase 3B EEG preprocessing or output verification fails."""
+

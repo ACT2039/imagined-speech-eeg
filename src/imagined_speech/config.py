@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -16,6 +17,8 @@ DEFAULT_EXPECTED_TASKS: tuple[str, ...] = ("Char", "Digit", "Image")
 DEFAULT_PRIMARY_EEG_MONTAGE: tuple[str, ...] = (
     "AF3", "F7", "F3", "FC5", "T7", "P7", "O1", "O2", "P8", "T8", "FC6", "F4", "F8", "AF4",
 )
+
+DEFAULT_EXPECTED_PHYSICAL_UNITS: tuple[str, ...] = ("uV", "µV", "uv", "microvolt")
 
 DEFAULT_KNOWN_EEG_CHANNELS: tuple[str, ...] = (
     "AF3", "F7", "F3", "FC5", "T7", "P7", "O1", "O2", "P8", "T8", "FC6", "F4", "F8", "AF4",
@@ -137,6 +140,98 @@ class SignalQualityConfig:
 
 
 @dataclass(frozen=True)
+class PreprocessingConfig:
+    """Configuration for Phase 3B reusable EEG preprocessing and QC screening."""
+
+    expected_eeg_channels: tuple[str, ...] = DEFAULT_PRIMARY_EEG_MONTAGE
+    expected_sfreq_hz: float = 128.0
+    sfreq_tolerance_hz: float = 1.0e-3
+    expected_physical_units: tuple[str, ...] = DEFAULT_EXPECTED_PHYSICAL_UNITS
+    apply_mean_subtraction: bool = True
+    apply_bandpass_filter: bool = True
+    bandpass_low_hz: float = 0.5
+    bandpass_high_hz: float = 45.0
+    butterworth_order: int = 4
+    filter_padtype: str | None = "even"
+    filter_pad_cycles: float = 3.0
+    reference_mode: str = "none"
+    qc_screening_min_std_uV: float = 0.5
+    qc_screening_max_ptp_uV: float = 1000.0
+    boundary_validation_window_sec: float = 1.0
+    generate_figures: bool = True
+
+    def __post_init__(self) -> None:
+        if not self.expected_eeg_channels:
+            raise ConfigurationError("expected_eeg_channels must contain at least one channel name.")
+        cleaned = [str(ch).strip().upper() for ch in self.expected_eeg_channels]
+        if any(not ch for ch in cleaned) or len(set(cleaned)) != len(cleaned):
+            raise ConfigurationError(
+                "expected_eeg_channels must contain non-empty unique channel names."
+            )
+        if not math.isfinite(self.expected_sfreq_hz) or self.expected_sfreq_hz <= 0:
+            raise ConfigurationError(
+                f"expected_sfreq_hz must be a positive finite number, got {self.expected_sfreq_hz!r}."
+            )
+        if not math.isfinite(self.sfreq_tolerance_hz) or self.sfreq_tolerance_hz < 0:
+            raise ConfigurationError(
+                f"sfreq_tolerance_hz must be a non-negative finite number, got {self.sfreq_tolerance_hz!r}."
+            )
+        if not self.expected_physical_units:
+            raise ConfigurationError(
+                "expected_physical_units must contain at least one physical unit string."
+            )
+        nyquist = self.expected_sfreq_hz / 2.0
+        if not (
+            math.isfinite(self.bandpass_low_hz)
+            and math.isfinite(self.bandpass_high_hz)
+            and 0.0 < self.bandpass_low_hz < self.bandpass_high_hz < nyquist
+        ):
+            raise ConfigurationError(
+                f"Invalid bandpass cutoffs low_hz={self.bandpass_low_hz}, "
+                f"high_hz={self.bandpass_high_hz} for Nyquist={nyquist} Hz."
+            )
+        if (
+            isinstance(self.butterworth_order, bool)
+            or not isinstance(self.butterworth_order, int)
+            or self.butterworth_order < 1
+        ):
+            raise ConfigurationError(
+                f"butterworth_order must be an integer >= 1, got {self.butterworth_order!r}."
+            )
+        valid_padtypes = {"even", "odd", "constant", None}
+        if self.filter_padtype not in valid_padtypes:
+            raise ConfigurationError(
+                f"Invalid filter_padtype {self.filter_padtype!r}. "
+                f"Expected one of {sorted(str(x) for x in valid_padtypes)}."
+            )
+        if not math.isfinite(self.filter_pad_cycles) or self.filter_pad_cycles <= 0:
+            raise ConfigurationError(
+                f"filter_pad_cycles must be a positive finite number, got {self.filter_pad_cycles!r}."
+            )
+        valid_ref_modes = {"none", "car"}
+        if self.reference_mode not in valid_ref_modes:
+            raise ConfigurationError(
+                f"Invalid reference_mode {self.reference_mode!r}. "
+                f"Expected one of {sorted(valid_ref_modes)}."
+            )
+        if not math.isfinite(self.qc_screening_min_std_uV) or self.qc_screening_min_std_uV < 0:
+            raise ConfigurationError(
+                f"qc_screening_min_std_uV must be a non-negative finite number, got {self.qc_screening_min_std_uV!r}."
+            )
+        if not math.isfinite(self.qc_screening_max_ptp_uV) or self.qc_screening_max_ptp_uV <= 0:
+            raise ConfigurationError(
+                f"qc_screening_max_ptp_uV must be a positive finite number, got {self.qc_screening_max_ptp_uV!r}."
+            )
+        if (
+            not math.isfinite(self.boundary_validation_window_sec)
+            or self.boundary_validation_window_sec <= 0
+        ):
+            raise ConfigurationError(
+                f"boundary_validation_window_sec must be a positive finite number, got {self.boundary_validation_window_sec!r}."
+            )
+
+
+@dataclass(frozen=True)
 class ProjectConfig:
     """Top-level configuration for the Imagined Speech Recognition project."""
 
@@ -149,6 +244,7 @@ class ProjectConfig:
     label_parsing: LabelParsingConfig = field(default_factory=LabelParsingConfig)
     edf_audit: EDFAuditConfig = field(default_factory=EDFAuditConfig)
     signal_quality: SignalQualityConfig = field(default_factory=SignalQualityConfig)
+    preprocessing: PreprocessingConfig = field(default_factory=PreprocessingConfig)
 
     def __post_init__(self) -> None:
         if isinstance(self.seed, bool) or not isinstance(self.seed, int) or self.seed < 0:
@@ -166,6 +262,9 @@ def load_config(
     log_level: str | None = None,
     recordings_per_task: int | None = None,
     specific_recordings: tuple[str, ...] | list[str] | None = None,
+    reference_mode: str | None = None,
+    qc_screening_min_std_uV: float | None = None,
+    qc_screening_max_ptp_uV: float | None = None,
 ) -> ProjectConfig:
     """Load project configuration from YAML, environment variables, and explicit overrides.
 
@@ -191,6 +290,12 @@ def load_config(
         Optional override for number of representative recordings inspected per task.
     specific_recordings : tuple[str, ...] | list[str] | None
         Optional explicit list of recording paths/filenames to inspect in signal quality analysis.
+    reference_mode : str | None
+        Optional override for Phase 3B spatial reference mode (``"none"`` or ``"car"``).
+    qc_screening_min_std_uV : float | None
+        Optional override for Phase 3B post-filter low-std screening flag threshold in uV.
+    qc_screening_max_ptp_uV : float | None
+        Optional override for Phase 3B post-filter high-ptp screening flag threshold in uV.
 
     Returns
     -------
@@ -220,6 +325,7 @@ def load_config(
     label_sec = raw.get("label_parsing", {}) or {}
     audit_sec = raw.get("edf_audit", {}) or {}
     sq_sec = raw.get("signal_quality", {}) or {}
+    prep_sec = raw.get("preprocessing", {}) or {}
 
     env_data_root = os.environ.get("ISR_DATA_ROOT")
     env_output_dir = os.environ.get("ISR_OUTPUT_DIR")
@@ -343,6 +449,44 @@ def load_config(
         low_unique_ratio_threshold=float(sq_sec.get("low_unique_ratio_threshold", 0.05)),
     )
 
+    prep_padtype_raw = prep_sec.get("filter_padtype", "even")
+    prep_cfg = PreprocessingConfig(
+        expected_eeg_channels=tuple(
+            prep_sec.get("expected_eeg_channels", DEFAULT_PRIMARY_EEG_MONTAGE)
+        ),
+        expected_sfreq_hz=float(prep_sec.get("expected_sfreq_hz", 128.0)),
+        sfreq_tolerance_hz=float(prep_sec.get("sfreq_tolerance_hz", 1.0e-3)),
+        expected_physical_units=tuple(
+            prep_sec.get("expected_physical_units", DEFAULT_EXPECTED_PHYSICAL_UNITS)
+        ),
+        apply_mean_subtraction=bool(prep_sec.get("apply_mean_subtraction", True)),
+        apply_bandpass_filter=bool(prep_sec.get("apply_bandpass_filter", True)),
+        bandpass_low_hz=float(prep_sec.get("bandpass_low_hz", 0.5)),
+        bandpass_high_hz=float(prep_sec.get("bandpass_high_hz", 45.0)),
+        butterworth_order=int(prep_sec.get("butterworth_order", 4)),
+        filter_padtype=None if prep_padtype_raw is None else str(prep_padtype_raw),
+        filter_pad_cycles=float(prep_sec.get("filter_pad_cycles", 3.0)),
+        reference_mode=str(
+            reference_mode
+            if reference_mode is not None
+            else prep_sec.get("reference_mode", "none")
+        ),
+        qc_screening_min_std_uV=float(
+            qc_screening_min_std_uV
+            if qc_screening_min_std_uV is not None
+            else prep_sec.get("qc_screening_min_std_uV", 0.5)
+        ),
+        qc_screening_max_ptp_uV=float(
+            qc_screening_max_ptp_uV
+            if qc_screening_max_ptp_uV is not None
+            else prep_sec.get("qc_screening_max_ptp_uV", 1000.0)
+        ),
+        boundary_validation_window_sec=float(
+            prep_sec.get("boundary_validation_window_sec", 1.0)
+        ),
+        generate_figures=bool(prep_sec.get("generate_figures", True)),
+    )
+
     return ProjectConfig(
         project_name=str(project_sec.get("name", "imagined-speech-recognition")),
         seed=resolved_seed,
@@ -353,4 +497,5 @@ def load_config(
         label_parsing=label_cfg,
         edf_audit=audit_cfg,
         signal_quality=sq_cfg,
+        preprocessing=prep_cfg,
     )

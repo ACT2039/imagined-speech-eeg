@@ -159,3 +159,42 @@ signal_quality:
   repeated_adjacent_fraction_threshold: 0.50
   low_unique_ratio_threshold: 0.05
 
+preprocessing:
+  # Canonical 14-channel EEG montage selected in established order; auxiliary channels are excluded
+  expected_eeg_channels:
+    - "AF3"
+    - "F7"
+    - "F3"
+    - "FC5"
+    - "T7"
+    - "P7"
+    - "O1"
+    - "O2"
+    - "P8"
+    - "T8"
+    - "FC6"
+    - "F4"
+    - "F8"
+    - "AF4"
+  expected_sfreq_hz: 128.0
+  sfreq_tolerance_hz: 1.0e-3
+  expected_physical_units:
+    - "uV"
+    - "µV"
+    - "uv"
+    - "microvolt"
+  # Approved Phase 3B signal conditioning: per-channel mean subtraction + 4th-order Butterworth 0.5-45 Hz zero-phase band-pass
+  apply_mean_subtraction: true
+  apply_bandpass_filter: true
+  bandpass_low_hz: 0.5
+  bandpass_high_hz: 45.0
+  butterworth_order: 4
+  filter_padtype: "even"
+  filter_pad_cycles: 3.0
+  # Default to no additional rereferencing ("none"); "car" remains an experimental configurable option
+  reference_mode: "none"
+  # Exploratory post-filter screening thresholds (labeled as screening flags, not verified artifacts)
+  qc_screening_min_std_uV: 0.5
+  qc_screening_max_ptp_uV: 1000.0
+  boundary_validation_window_sec: 1.0
+  generate_figures: true
