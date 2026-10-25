@@ -20,6 +20,7 @@ from imagined_speech.data.targeted_investigation import (
     TargetedInvestigationReport,
     build_targeted_investigation_markdown_report,
     compute_trace_statistics,
+    compute_zip_edf_sha256_snapshot,
     investigate_calibration_metadata,
     investigate_end_excursion,
     investigate_trace_quantization,
@@ -403,3 +404,98 @@ def test_run_phase3b_targeted_investigation_end_to_end(tmp_path: Path) -> None:
     raw_after = {p: _sha256(p) for p in data_root.rglob("*") if p.is_file()}
     assert p3b_before == p3b_after
     assert raw_before == raw_after
+
+
+def test_compute_zip_edf_sha256_snapshot_macosx_and_appledouble_exclusion(tmp_path: Path) -> None:
+    """Verify that compute_zip_edf_sha256_snapshot excludes __MACOSX metadata and AppleDouble files."""
+    zip_path = tmp_path / "test_macosx.zip"
+    with zipfile.ZipFile(zip_path, "w") as zf:
+        # Real EDF files under root folder
+        zf.writestr("Imagined_speech_EEG_edf/Char/rec_char.edf", b"RAW_CHAR_BYTES")
+        zf.writestr("Imagined_speech_EEG_edf/Digit/rec_digit.edf", b"RAW_DIGIT_BYTES")
+        zf.writestr("Imagined_speech_EEG_edf/Image/rec_image.edf", b"RAW_IMAGE_BYTES")
+        # macOS AppleDouble metadata entries (should be excluded)
+        zf.writestr("__MACOSX/Imagined_speech_EEG_edf/Char/._rec_char.edf", b"MAC_METADATA_1")
+        zf.writestr("__MACOSX/Imagined_speech_EEG_edf/Digit/._rec_digit.edf", b"MAC_METADATA_2")
+        zf.writestr("__MACOSX/._Imagined_speech_EEG_edf", b"MAC_ROOT_META")
+        zf.writestr("Imagined_speech_EEG_edf/Char/._orphan_meta.edf", b"MAC_INLINE_META")
+        # Non-EDF entries (should be excluded)
+        zf.writestr("Imagined_speech_EEG_edf/readme.txt", b"README")
+
+    snapshot = compute_zip_edf_sha256_snapshot(zip_path)
+
+    # Exactly 3 real files, root folder stripped
+    assert len(snapshot) == 3
+    assert set(snapshot.keys()) == {
+        "Char/rec_char.edf",
+        "Digit/rec_digit.edf",
+        "Image/rec_image.edf",
+    }
+    assert snapshot["Char/rec_char.edf"] == hashlib.sha256(b"RAW_CHAR_BYTES").hexdigest()
+    assert snapshot["Digit/rec_digit.edf"] == hashlib.sha256(b"RAW_DIGIT_BYTES").hexdigest()
+    assert snapshot["Image/rec_image.edf"] == hashlib.sha256(b"RAW_IMAGE_BYTES").hexdigest()
+
+
+def test_verify_raw_edfs_against_zip_archive_structure_and_mismatch_detection(tmp_path: Path) -> None:
+    """Verify full-dataset checksum audit excludes __MACOSX, normalizes roots, and detects modifications."""
+    data_root = tmp_path / "extracted_data"
+    data_root.mkdir()
+    (data_root / "Char").mkdir()
+    (data_root / "Digit").mkdir()
+    (data_root / "Image").mkdir()
+
+    f_char = data_root / "Char" / "rec_char.edf"
+    f_digit = data_root / "Digit" / "rec_digit.edf"
+    f_image = data_root / "Image" / "rec_image.edf"
+
+    f_char.write_bytes(b"CHAR_SIGNAL_V1")
+    f_digit.write_bytes(b"DIGIT_SIGNAL_V1")
+    f_image.write_bytes(b"IMAGE_SIGNAL_V1")
+
+    # Create ZIP with archive root + __MACOSX metadata
+    zip_path = tmp_path / "source_dataset.zip"
+    with zipfile.ZipFile(zip_path, "w") as zf:
+        zf.writestr("Imagined_speech_EEG_edf/Char/rec_char.edf", b"CHAR_SIGNAL_V1")
+        zf.writestr("Imagined_speech_EEG_edf/Digit/rec_digit.edf", b"DIGIT_SIGNAL_V1")
+        zf.writestr("Imagined_speech_EEG_edf/Image/rec_image.edf", b"IMAGE_SIGNAL_V1")
+        # AppleDouble metadata entries
+        zf.writestr("__MACOSX/Imagined_speech_EEG_edf/Char/._rec_char.edf", b"MAC_META_CHAR")
+        zf.writestr("__MACOSX/Imagined_speech_EEG_edf/Digit/._rec_digit.edf", b"MAC_META_DIGIT")
+        zf.writestr("Imagined_speech_EEG_edf/Image/._rec_image.edf", b"MAC_INLINE_IMAGE")
+
+    # 1. Full dataset check: should pass with 3 verified files, 0 missing, 0 added
+    res_clean = verify_raw_edfs_against_zip_or_snapshot(data_root=data_root, zip_path=zip_path)
+    assert res_clean["status"] == "verified_against_zip_archive"
+    assert res_clean["is_verified"] is True
+    assert res_clean["n_files_checked"] == 3
+    assert res_clean["n_files_verified"] == 3
+    assert res_clean["missing_files"] == []
+    assert res_clean["added_files"] == []
+    assert res_clean["modified_files"] == []
+
+    # 2. Tampered file: modify rec_digit.edf
+    f_digit.write_bytes(b"CORRUPTED_DIGIT_SIGNAL")
+    res_tampered = verify_raw_edfs_against_zip_or_snapshot(data_root=data_root, zip_path=zip_path)
+    assert res_tampered["status"] == "integrity_violation"
+    assert res_tampered["is_verified"] is False
+    assert "Digit/rec_digit.edf" in res_tampered["modified_files"]
+    assert "1 modified" in res_tampered["detail"]
+    f_digit.write_bytes(b"DIGIT_SIGNAL_V1")  # restore
+
+    # 3. Missing file: delete rec_image.edf
+    f_image.unlink()
+    res_missing = verify_raw_edfs_against_zip_or_snapshot(data_root=data_root, zip_path=zip_path)
+    assert res_missing["status"] == "integrity_violation"
+    assert res_missing["is_verified"] is False
+    assert "Image/rec_image.edf" in res_missing["missing_files"]
+    assert "1 missing" in res_missing["detail"]
+    f_image.write_bytes(b"IMAGE_SIGNAL_V1")  # restore
+
+    # 4. Added file: add unexpected recording on disk
+    f_extra = data_root / "Char" / "unexpected.edf"
+    f_extra.write_bytes(b"UNEXPECTED_EXTRA_RECORDING")
+    res_added = verify_raw_edfs_against_zip_or_snapshot(data_root=data_root, zip_path=zip_path)
+    assert res_added["status"] == "integrity_violation"
+    assert res_added["is_verified"] is False
+    assert "Char/unexpected.edf" in res_added["added_files"]
+    assert "1 added" in res_added["detail"]

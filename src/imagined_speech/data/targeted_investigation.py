@@ -32,6 +32,7 @@ Scientific Safeguards & Invariants:
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import math
@@ -395,16 +396,67 @@ def investigate_trace_quantization(
     }
 
 
+def compute_zip_edf_sha256_snapshot(
+    zip_path: Path | str,
+    *,
+    root_folder_name: str = "Imagined_speech_EEG_edf",
+) -> dict[str, str]:
+    """Build the expected EDF inventory and SHA-256 hashes from the dataset ZIP archive.
+
+    Excludes:
+    - All '__MACOSX/' metadata directory entries.
+    - All AppleDouble metadata files whose basename starts with '._'.
+
+    Normalizes real EDF relative paths by removing the single archive root
+    directory ('Imagined_speech_EEG_edf/') so paths match the extracted dataset
+    layout (e.g., 'Char/name1_A.edf').
+    """
+    z_path = Path(zip_path)
+    if not z_path.is_file():
+        return {}
+
+    inventory: dict[str, str] = {}
+    with zipfile.ZipFile(z_path, "r") as zf:
+        for name in sorted(zf.namelist()):
+            norm_name = name.replace("\\", "/")
+            if norm_name.endswith("/") or not norm_name.lower().endswith(".edf"):
+                continue
+
+            path_obj = Path(norm_name)
+            if any(part == "__MACOSX" for part in path_obj.parts):
+                continue
+
+            if path_obj.name.startswith("._"):
+                continue
+
+            parts = list(path_obj.parts)
+            if parts and parts[0].lower() == root_folder_name.lower():
+                parts = parts[1:]
+
+            if not parts:
+                continue
+
+            rel_key = "/".join(parts)
+            z_bytes = zf.read(name)
+            inventory[rel_key] = hashlib.sha256(z_bytes).hexdigest()
+
+    return inventory
+
+
 def verify_raw_edfs_against_zip_or_snapshot(
     data_root: Path | str,
     *,
     zip_path: Path | str | None = None,
     baseline_snapshot: dict[str, str] | None = None,
     relative_paths: Sequence[str] | None = None,
+    root_folder_name: str = "Imagined_speech_EEG_edf",
 ) -> dict[str, Any]:
     """Verify extracted raw EDF files against the original ZIP archive or a valid pre-review snapshot.
 
     Never reports an unavailable baseline as verified.
+    Excludes __MACOSX metadata and AppleDouble (._*) files.
+    Normalizes archive root directory so paths match extracted dataset.
+    Preserves strict SHA-256 verification, checking for missing, added, or modified recordings.
     """
     root_p = Path(data_root)
     z_path = Path(zip_path) if zip_path else None
@@ -419,7 +471,10 @@ def verify_raw_edfs_against_zip_or_snapshot(
             "detail": f"Data root directory does not exist: {root_p}",
         }
 
-    disk_edfs = sorted(root_p.rglob("*.edf"))
+    disk_edfs = sorted(
+        p for p in root_p.rglob("*.edf")
+        if not p.name.startswith("._") and not any(part == "__MACOSX" for part in p.parts)
+    )
     if not disk_edfs:
         return {
             "status": "baseline_snapshot_unavailable",
@@ -429,126 +484,116 @@ def verify_raw_edfs_against_zip_or_snapshot(
             "detail": f"Data root {root_p} contains 0 .edf files.",
         }
 
-    # Target relative paths to inspect
-    target_rel_list = (
-        [Path(p).as_posix() for p in relative_paths]
-        if relative_paths is not None
-        else [p.relative_to(root_p).as_posix() for p in disk_edfs]
-    )
+    disk_hashes = {
+        p.relative_to(root_p).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest()
+        for p in disk_edfs
+    }
 
-    # 1. Compare against ZIP archive if provided and exists
+    # 1. Build baseline inventory: ZIP archive preferred, snapshot dictionary as fallback
+    expected_inventory: dict[str, str] | None = None
+    comparison_source = "none"
+    source_label = "none"
+
     if z_path and z_path.is_file():
         try:
-            with zipfile.ZipFile(z_path, "r") as zf:
-                # Build lookup of member names normalized to relative path
-                zip_members = {
-                    Path(name).name.lower(): name
-                    for name in zf.namelist()
-                    if name.lower().endswith(".edf")
-                }
-
-                mismatches: list[str] = []
-                verified_count = 0
-
-                for rel_str in target_rel_list:
-                    disk_f = root_p / rel_str
-                    if not disk_f.is_file():
-                        mismatches.append(f"Missing file on disk: {rel_str}")
-                        continue
-
-                    # Look for matching member in zip
-                    key = disk_f.name.lower()
-                    if key not in zip_members:
-                        mismatches.append(f"File not found in ZIP archive: {rel_str}")
-                        continue
-
-                    z_member_name = zip_members[key]
-                    z_bytes = zf.read(z_member_name)
-                    import hashlib
-
-                    z_sha = hashlib.sha256(z_bytes).hexdigest()
-                    disk_sha = hashlib.sha256(disk_f.read_bytes()).hexdigest()
-
-                    if z_sha != disk_sha:
-                        mismatches.append(
-                            f"Checksum mismatch for {rel_str}: disk={disk_sha[:10]}... != zip={z_sha[:10]}..."
-                        )
-                    else:
-                        verified_count += 1
-
-                if mismatches:
-                    return {
-                        "status": "integrity_violation",
-                        "is_verified": False,
-                        "comparison_source": "original_zip_archive",
-                        "zip_path": str(z_path),
-                        "n_files_checked": len(target_rel_list),
-                        "mismatches": mismatches,
-                        "detail": f"Integrity violation: {len(mismatches)} mismatches detected against {z_path.name}.",
-                    }
-
-                return {
-                    "status": "verified_against_zip_archive",
-                    "is_verified": True,
-                    "comparison_source": "original_zip_archive",
-                    "zip_path": str(z_path),
-                    "n_files_checked": verified_count,
-                    "detail": f"All {verified_count} checked EDF files verified byte-for-byte identical to {z_path.name} via SHA-256.",
-                }
+            expected_inventory = compute_zip_edf_sha256_snapshot(
+                z_path, root_folder_name=root_folder_name
+            )
+            comparison_source = "original_zip_archive"
+            source_label = z_path.name
         except Exception as exc:
             logger.warning("Failed to inspect dataset ZIP archive at %s: %s", z_path, exc)
+            expected_inventory = None
 
-    # 2. Compare against pre-computed snapshot dictionary if available
-    if baseline_snapshot:
-        missing = []
-        mismatches = []
-        verified_count = 0
-        import hashlib
+    if expected_inventory is None and baseline_snapshot:
+        expected_inventory = baseline_snapshot
+        comparison_source = "pre_review_sha256_snapshot"
+        source_label = "pre-review SHA-256 snapshot"
 
-        for rel_str in target_rel_list:
-            disk_f = root_p / rel_str
-            if not disk_f.is_file():
-                missing.append(rel_str)
-                continue
-            if rel_str not in baseline_snapshot:
-                continue
+    if expected_inventory is None:
+        return {
+            "status": "baseline_snapshot_unavailable",
+            "is_verified": None,
+            "comparison_source": "none",
+            "n_files_checked": 0,
+            "detail": (
+                "Neither the original dataset ZIP archive nor a valid pre-review SHA-256 snapshot "
+                "was accessible for comparison; raw EDF integrity could not be verified against baseline."
+            ),
+        }
 
-            expected_sha = baseline_snapshot[rel_str]
-            actual_sha = hashlib.sha256(disk_f.read_bytes()).hexdigest()
-            if actual_sha != expected_sha:
-                mismatches.append(rel_str)
-            else:
-                verified_count += 1
+    # 2. Compare against target relative paths or entire dataset
+    if relative_paths is not None:
+        target_keys = [Path(p).as_posix() for p in relative_paths]
+        missing_files = [k for k in target_keys if k not in disk_hashes]
+        added_files = [k for k in target_keys if k not in expected_inventory]
+        modified_files = [
+            k for k in target_keys
+            if k in disk_hashes and k in expected_inventory and disk_hashes[k] != expected_inventory[k]
+        ]
+        verified_files = [
+            k for k in target_keys
+            if k in disk_hashes and k in expected_inventory and disk_hashes[k] == expected_inventory[k]
+        ]
+        n_checked = len(target_keys)
+    else:
+        expected_keys = set(expected_inventory.keys())
+        disk_keys = set(disk_hashes.keys())
+        missing_files = sorted(expected_keys - disk_keys)
+        added_files = sorted(disk_keys - expected_keys)
+        modified_files = sorted(
+            k for k in (expected_keys & disk_keys)
+            if disk_hashes[k] != expected_inventory[k]
+        )
+        verified_files = sorted(
+            k for k in (expected_keys & disk_keys)
+            if disk_hashes[k] == expected_inventory[k]
+        )
+        n_checked = len(expected_keys)
 
-        if mismatches or missing:
-            return {
-                "status": "integrity_violation",
-                "is_verified": False,
-                "comparison_source": "pre_review_sha256_snapshot",
-                "n_files_checked": len(target_rel_list),
-                "mismatches": mismatches,
-                "missing": missing,
-                "detail": f"Checksum mismatch in {len(mismatches)} files against pre-review snapshot.",
-            }
+    mismatches = (
+        [f"Missing on disk: {k}" for k in missing_files]
+        + [f"Added on disk (not in baseline): {k}" for k in added_files]
+        + [f"Checksum mismatch: {k}" for k in modified_files]
+    )
 
-        if verified_count > 0:
-            return {
-                "status": "verified_against_snapshot",
-                "is_verified": True,
-                "comparison_source": "pre_review_sha256_snapshot",
-                "n_files_checked": verified_count,
-                "detail": f"All {verified_count} checked EDF files verified byte-for-byte identical via pre-review SHA-256 snapshot.",
-            }
+    if missing_files or added_files or modified_files:
+        return {
+            "status": "integrity_violation",
+            "is_verified": False,
+            "comparison_source": comparison_source,
+            "zip_path": str(z_path) if z_path else None,
+            "n_files_checked": n_checked,
+            "n_files_verified": len(verified_files),
+            "missing_files": missing_files,
+            "added_files": added_files,
+            "modified_files": modified_files,
+            "mismatches": mismatches,
+            "detail": (
+                f"Integrity violation against {source_label}: "
+                f"{len(modified_files)} modified, {len(missing_files)} missing, {len(added_files)} added files."
+            ),
+        }
 
-    # 3. Baseline unavailable
+    status_name = (
+        "verified_against_zip_archive"
+        if comparison_source == "original_zip_archive"
+        else "verified_against_snapshot"
+    )
     return {
-        "status": "baseline_snapshot_unavailable",
-        "is_verified": None,
-        "comparison_source": "none",
-        "n_files_checked": 0,
+        "status": status_name,
+        "is_verified": True,
+        "comparison_source": comparison_source,
+        "zip_path": str(z_path) if z_path else None,
+        "n_files_checked": n_checked,
+        "n_files_verified": len(verified_files),
+        "missing_files": [],
+        "added_files": [],
+        "modified_files": [],
+        "mismatches": [],
         "detail": (
-            "Neither the original dataset ZIP archive nor a valid pre-review SHA-256 snapshot "
-            "was accessible for comparison; raw EDF integrity could not be verified against baseline."
+            f"All {n_checked} checked EDF files verified byte-for-byte identical "
+            f"to {source_label} via SHA-256."
         ),
     }
 

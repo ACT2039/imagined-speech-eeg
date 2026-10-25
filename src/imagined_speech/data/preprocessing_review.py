@@ -76,7 +76,12 @@ def compute_directory_sha256_snapshot(
     if not target_dir.is_dir():
         return {}
     hashes: dict[str, str] = {}
-    for fpath in sorted(p for p in target_dir.rglob(pattern) if p.is_file()):
+    for fpath in sorted(
+        p for p in target_dir.rglob(pattern)
+        if p.is_file()
+        and not p.name.startswith("._")
+        and not any(part == "__MACOSX" for part in p.parts)
+    ):
         h = hashlib.sha256()
         with open(fpath, "rb") as f:
             while chunk := f.read(chunk_size):
